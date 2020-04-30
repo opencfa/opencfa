@@ -1,2 +1,2 @@
 # opencfa
-A place where you have always dreamed to be in !
+A place, you have always dreamed to be in !
