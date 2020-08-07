@@ -24,6 +24,6 @@ It uses  great opensource projects like
 - Blender
 - Gimp
 
-Currently the code is in ealy stage. proper attributions will be placed once the files are cleaned and committed to master branch.
+Currently the code is in ealy stage. proper attributions will be placed once the files are cleaned and committed to release branch.
 
 Contact: opencfa at gmail.com
