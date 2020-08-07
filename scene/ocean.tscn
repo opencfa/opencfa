@@ -1,0 +1,302 @@
+[gd_scene load_steps=8 format=2]
+
+[ext_resource path="res://scene/menumain.tscn" type="PackedScene" id=1]
+[ext_resource path="res://scene/nature/ocean/Sprite.gd" type="Script" id=2]
+[ext_resource path="res://scene/nature/ocean/texture.png" type="Texture" id=3]
+[ext_resource path="res://scene/sidebar.tscn" type="PackedScene" id=4]
+
+[sub_resource type="Shader" id=1]
+code = "/*
+ * 
+ * Very fast procedural ocean 
+ * https://www.shadertoy.com/view/MdXyzX
+ * //afl_ext 2017-2019
+ *
+ * converted for Godot 3 shader by jospic (jospic@gmail.com)
+ */
+
+shader_type canvas_item;
+
+uniform vec2 mouse_position;
+
+uniform float DRAG_MULT = 0.048;
+uniform int ITERATIONS_RAYMARCH = 1;
+uniform int ITERATIONS_NORMAL = 48;
+uniform float waterdepth = 4.8;
+uniform  vec3 orig = vec3(0.0,0.01,0.0);
+uniform float ra = 1.0;
+uniform float fre = 40.0;
+
+vec2 wavedx(vec2 position, vec2 direction, float speed, float frequency, float timeshift) {
+    float x = dot(direction, position) * frequency + timeshift * speed;
+    float wave = exp(sin(x) - 1.0);
+    float dx = wave * cos(x);
+    return vec2(wave, -dx);
+}
+
+float getwaves(vec2 position, int iterations, float time){
+	float iter = 0.0;
+    float phase = 6.0;
+    float speed = 1.6;
+    float weight = 1.0;
+    float w = 0.0;
+    float ws = 0.0;
+    for(int i=0;i<iterations;i++){
+        vec2 p = vec2(sin(iter), cos(iter));
+        vec2 res = wavedx(position, p, speed, phase, time);
+        position += normalize(p) * res.y * weight * DRAG_MULT;
+        w += res.x * weight;
+        iter += 12.0;
+        ws += weight;
+        weight = mix(weight, 0.0, 0.2);
+        phase *= 1.18;
+        speed *= 1.07;
+    }
+    return w / ws;
+}
+
+float raymarchwater(vec3 camera, vec3 start, vec3 end, float depth, float time){
+    vec3 pos = start;
+    float h = 0.0;
+    float hupper = depth;
+    float hlower = 0.0;
+    vec2 zer = vec2(0.0);
+    vec3 dir = normalize(end - start);
+    for(int i=0;i<318;i++){
+        h = getwaves(pos.xz * 0.1, ITERATIONS_RAYMARCH, time) * depth - depth;
+        if(h + 0.01 > pos.y) {
+            return distance(pos, camera);
+        }
+        pos += dir * (pos.y - h);
+    }
+    return -1.0;
+}
+
+vec3 normal(vec2 pos, float e, float depth, float time){
+    vec2 ex = vec2(e, 0);
+	float H = 0.0;
+    H = getwaves(pos.xy * 0.1, ITERATIONS_NORMAL, time) * depth;
+    vec3 a = vec3(pos.x, H, pos.y);
+    return normalize(cross(normalize(a-vec3(pos.x - e, getwaves(pos.xy * 0.1 - ex.xy * 0.1, ITERATIONS_NORMAL, time) * depth, pos.y)), 
+                           normalize(a-vec3(pos.x, 	   getwaves(pos.xy * 0.1 + ex.yx * 0.1, ITERATIONS_NORMAL, time) * depth, pos.y + e))));
+}
+
+mat3 rotmat(vec3 axis, float angle)
+{
+	axis = normalize(axis);
+	float s = sin(angle);
+	float c = cos(angle);
+	float oc = 1.0 - c;
+	return mat3(vec3(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s), 
+	vec3(oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s), 
+	vec3(oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c));
+}
+
+vec3 getRay(vec2 uv, vec2 resolution ){
+    uv = (uv * 2.0 - 1.0) * vec2(resolution.x / resolution.y, 1.0);
+	vec3 proj = normalize(vec3(uv.x, uv.y, 1.0) + vec3(uv.x, uv.y, -1.0) * pow(length(uv), 2.0) * 0.05);	
+    if(resolution.x < 400.0) return proj;
+	vec3 ray = rotmat(vec3(0.0, -1.0, 0.0), 3.0 * ((mouse_position/resolution).x * 2.0 - 1.0)) * rotmat(vec3(1.0, 0.0, 0.0), 0.40 * ((mouse_position/resolution).y * 2.0 - 1.0)) * proj;
+    return ray;
+}
+
+float intersectPlane(vec3 origin, vec3 direction, vec3 point, vec3 normal)
+{ 
+    return clamp(dot(point - origin, normal) / dot(direction, normal), -1.0, 9991999.0); 
+}
+
+vec3 extra_cheap_atmosphere(vec3 raydir, vec3 sundir){
+	sundir.y = max(sundir.y, -0.07);
+	float special_trick = 1.0 / (raydir.y * 1.0 + 0.1);
+	float special_trick2 = 4.0 / (sundir.y * 11.0 + 1.0);//4 to  1
+	float raysundt = pow(abs(dot(sundir, raydir)), 2.0);
+	float sundt = pow(max(0.0, dot(sundir, raydir)), 8.0);
+	float mymie = sundt * special_trick * 0.2;
+	vec3 suncolor = mix(vec3(1.0), max(vec3(0.0), vec3(1.0) - vec3(5.5, 13.0, 22.4) / 22.4), special_trick2);
+	vec3 bluesky= vec3(5.5, 13.0, 22.4) / 22.4 * suncolor;
+	vec3 bluesky2 = max(vec3(0.0), bluesky - vec3(5.5, 13.0, 22.4) * 0.002 * (special_trick + -6.0 * sundir.y * sundir.y));
+	bluesky2 *= special_trick * (0.24 + raysundt * 0.24);
+	return bluesky2 * (1.0 + 1.0 * pow(1.0 - raydir.y, 3.0)) + mymie * suncolor;
+} 
+
+vec3 getatm(vec3 ray){
+ 	return extra_cheap_atmosphere(ray, normalize(vec3(1.0))) * 0.5;
+    
+}
+
+float sun(vec3 ray){
+ 	vec3 sd = normalize(vec3(1.0));   
+    return pow(max(0.0, dot(ray, sd)), 58.0) * 110.0;
+}
+vec3 aces_tonemap(vec3 color){	
+	mat3 m1 = mat3(
+        vec3(0.59719, 0.0600, 0.02840),
+        vec3(0.35458, 0.90834, 0.13383),
+        vec3(0.04823, 0.01566, 0.83777)
+	);
+	mat3 m2 = mat3(
+        vec3(1.60475, -0.10208, -0.00327),
+        vec3(-0.53108,  1.10813, -0.07276),
+        vec3(-0.07367, -0.00605,  1.07602)
+	);
+	vec3 v = m1 * color;    
+	vec3 a = v * (v + 0.0245786) - 0.000090537;
+	vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+	return pow(clamp(m2 * (a / b), 0.0, 1.0), vec3(1.0 / 2.2));	
+}
+
+void fragment()
+{
+	vec2 Resolution = (1.0 / SCREEN_PIXEL_SIZE).xy;
+	
+	vec2 uv = FRAGCOORD.xy / Resolution;
+	
+	//waterdepth =42.8;//41.0//2.1
+	vec3 wfloor = vec3(0.0, -waterdepth, 0.8);
+	vec3 wceil = vec3(0.0,0.0, 0.0);
+	//orig = vec3(0.0, 0.01, 0.0);//0.0,0.2,0.0
+	vec3 ray = getRay(uv, Resolution)*ra;
+	float hihit = intersectPlane(orig, ray, wceil, vec3(0.0, 1.0, 0.0));
+    if(ray.y >= -0.01) {
+        vec3 C = getatm(ray) * 2.0 + sun(ray);
+        //tonemapping
+    	C = aces_tonemap(C);
+     	COLOR = vec4( C,1.0);   
+        return;
+    }
+	float lohit = intersectPlane(orig, ray, wfloor, vec3(0.0, 1.0, 0.0));
+    vec3 hipos = orig + ray * hihit;
+    vec3 lopos = orig + ray * lohit;
+	float dist = raymarchwater(orig, hipos, lopos, waterdepth, TIME);
+    vec3 pos = orig + ray * dist;
+
+	vec3 N = normal(pos.xz, 0.001, waterdepth, TIME);
+    vec2 velocity = N.xz * (1.0 - N.y);
+    N = mix(vec3(0.0, 1.0, 0.0), N, 1.0 / (dist * dist * 0.01 + 1.0));
+    vec3 R = reflect(ray, N);
+    float fresnel = (0.02 + (1.0 - 0.04)*(pow(1.0 - max(0.0, dot(-N, ray)), fre)));//fre
+	
+    vec3 C = fresnel * getatm(R) * 4.0 + fresnel * sun(R);
+    //tonemapping
+    //vec3 D = aces_tonemap(C);
+	//C.r=C.g+0.02;
+    	vec3 D = aces_tonemap(C);
+	COLOR = vec4(D, 1.0);
+	COLOR.g+=abs(sin(TIME)*0.04);
+	
+
+}"
+
+[sub_resource type="ShaderMaterial" id=2]
+shader = SubResource( 1 )
+shader_param/mouse_position = Vector2( 0, 100 )
+shader_param/DRAG_MULT = 0.048
+shader_param/ITERATIONS_RAYMARCH = 13
+shader_param/ITERATIONS_NORMAL = 48
+shader_param/waterdepth = 4.8
+shader_param/orig = Vector3( 0, 0.01, 0 )
+shader_param/ra = 1.0
+shader_param/fre = 40.0
+
+[sub_resource type="RectangleShape2D" id=3]
+extents = Vector2( 508.09, 301.751 )
+
+[node name="Node2D" type="Node2D"]
+
+[node name="back" type="Sprite" parent="."]
+texture = ExtResource( 3 )
+centered = false
+
+[node name="front" type="Sprite" parent="."]
+material = SubResource( 2 )
+position = Vector2( 512, 300 )
+texture = ExtResource( 3 )
+script = ExtResource( 2 )
+
+[node name="Area2D" type="Area2D" parent="front"]
+visible = false
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="front/Area2D"]
+position = Vector2( 0, 48 )
+shape = SubResource( 3 )
+
+[node name="Control" type="Control" parent="."]
+anchor_right = 1.0
+margin_right = 1024.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="menuPanel" parent="Control" instance=ExtResource( 1 )]
+margin_right = 320.0
+
+[node name="sidebar" parent="." instance=ExtResource( 4 )]
+margin_left = 11.0
+margin_top = 53.0
+margin_right = 69.0
+margin_bottom = 477.0
+
+[node name="VBoxContainer" parent="sidebar" index="0"]
+margin_right = 81.0
+margin_bottom = 417.0
+
+[node name="Button2" parent="sidebar/VBoxContainer" index="0"]
+margin_right = 74.0
+
+[node name="SpinBox" type="SpinBox" parent="sidebar/VBoxContainer" index="1"]
+margin_top = 26.0
+margin_right = 74.0
+margin_bottom = 50.0
+min_value = -50.0
+max_value = 100.0
+step = 0.1
+value = 2.0
+
+[node name="SpinBox3" type="SpinBox" parent="sidebar/VBoxContainer" index="2"]
+margin_top = 54.0
+margin_right = 74.0
+margin_bottom = 78.0
+min_value = -100.0
+max_value = 100.0
+step = 0.5
+value = 1.0
+
+[node name="SpinBox4" type="SpinBox" parent="sidebar/VBoxContainer" index="3"]
+margin_top = 82.0
+margin_right = 74.0
+margin_bottom = 106.0
+min_value = 1.0
+max_value = 20.0
+step = 0.5
+value = 1.0
+
+[node name="SpinBox5" type="SpinBox" parent="sidebar/VBoxContainer" index="4"]
+margin_top = 110.0
+margin_right = 74.0
+margin_bottom = 134.0
+min_value = -5.0
+max_value = 100.0
+step = 0.5
+value = 4.0
+
+[node name="ColorPickerButton" type="ColorPickerButton" parent="sidebar/VBoxContainer" index="5"]
+margin_top = 138.0
+margin_right = 74.0
+margin_bottom = 158.0
+color = Color( 0.968627, 0.901961, 0.172549, 1 )
+
+[node name="ColorPickerButton2" type="ColorPickerButton" parent="sidebar/VBoxContainer" index="6"]
+margin_top = 162.0
+margin_right = 74.0
+margin_bottom = 182.0
+color = Color( 0.972549, 0.945098, 0.654902, 1 )
+[connection signal="mouse_entered" from="front/Area2D" to="front" method="_on_Area2D_mouse_entered"]
+[connection signal="mouse_exited" from="front/Area2D" to="front" method="_on_Area2D_mouse_exited"]
+[connection signal="value_changed" from="sidebar/VBoxContainer/SpinBox" to="front" method="_on_SpinBox_value_changed"]
+[connection signal="value_changed" from="sidebar/VBoxContainer/SpinBox3" to="front" method="_on_SpinBox3_value_changed"]
+[connection signal="value_changed" from="sidebar/VBoxContainer/SpinBox4" to="front" method="_on_SpinBox4_value_changed"]
+[connection signal="value_changed" from="sidebar/VBoxContainer/SpinBox5" to="front" method="_on_SpinBox5_value_changed"]
+[connection signal="color_changed" from="sidebar/VBoxContainer/ColorPickerButton" to="front" method="_on_ColorPickerButton_color_changed"]
+[connection signal="color_changed" from="sidebar/VBoxContainer/ColorPickerButton2" to="front" method="_on_ColorPickerButton2_color_changed"]
+
+[editable path="sidebar"]

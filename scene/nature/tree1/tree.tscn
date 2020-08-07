@@ -1,0 +1,497 @@
+[gd_scene load_steps=7 format=2]
+
+[ext_resource path="res://scene/nature/tree1/Sprite.gd" type="Script" id=1]
+[ext_resource path="res://scene/menumain.tscn" type="PackedScene" id=2]
+
+[sub_resource type="Shader" id=1]
+code = "shader_type canvas_item;
+uniform int TRUE_DISTANCE = 0;
+uniform int  kDepth =7;
+uniform int  kBranches =3;
+uniform int  kMaxDepth =2187 ;// branches ^ depth
+uniform float iTime=0.7;
+
+uniform float len = 3.2;
+uniform float wid = 0.3;
+uniform float lenf = 0.6;
+uniform float widf = 0.4;
+
+uniform float zoff = 12.0;
+uniform float yoff = 3.5;
+uniform float foc = 3.5;
+
+mat3 matRotate(float angle)
+{
+    float c = cos(angle);
+    float s = sin(angle);
+   return mat3(vec3(c, s, 0), vec3(-s, c, 0),vec3( 0, 0, 1));
+}
+
+mat3 matTranslate( float x, float y )
+{
+    return mat3( vec3(1, 0, 0), vec3(0, 1, 0), vec3(-x, -y, 1 ));
+}
+
+float sdBranch( vec2 p, float w1, float w2, float l )
+{
+    float h = clamp( p.y/l, 0.0, 1.0 );
+	float d = length( p - vec2(0.0,l*h) );
+    return d - mix( w1, w2, h );
+}
+//--------------------------------------------------------------------------
+
+float map( vec2 pos)
+{
+	/*
+    const float len = 3.2;
+    const float wid = 0.3;
+    const float lenf = 0.6;
+    const float widf = 0.4;
+*/
+    float d = sdBranch( pos, wid, wid*widf, len );
+
+    int c = 0;
+    for( int count=0; count < kMaxDepth; count++ )
+    {
+        int off = kMaxDepth;
+    	vec2 pt_n = pos;
+
+        float l = len;
+        float w = wid;
+
+      	for( int i=1; i<=kDepth; i++ )
+      	{
+            l *= lenf;
+            w *= widf;
+
+            off /= kBranches;
+            int dec = c / off;
+        	int path = dec - kBranches*(dec/kBranches); //  dec % kBranches
+
+            mat3 mx;
+	    	if( path == 0 )
+           	{
+		  		mx = matRotate(0.75 + 0.25*sin(iTime-1.0)) * matTranslate( 0.0,0.4*l/lenf);
+	    	}
+        	else if( path == 1 )
+            {
+          		mx = matRotate(-0.6 + 0.21*sin(iTime)) * matTranslate(0.0,0.6*l/lenf);
+	    	}
+	    	else
+            {
+          		mx = matRotate(0.23*sin(iTime+1.)) * matTranslate(0.0,1.0*l/lenf);
+	    	}
+            pt_n = (mx * vec3(pt_n,1)).xy;
+
+
+
+        	// bounding sphere test
+            float y = length( pt_n - vec2(0.0, l) );
+            if(TRUE_DISTANCE == 0)
+			{
+            if( y-1.4*l > d   ) { c += off-1; break; }
+			}
+            else
+       		if( y-1.4*l > 0.0 ) { c += off-1; break; }
+           
+
+
+            d = min( d, sdBranch( pt_n, w, w*widf, l ) );
+     	}
+
+    	c++;
+    	if( c > kMaxDepth ) break;
+	}
+
+   	return d;
+}
+
+vec3 rgb2hsv(vec3 c)
+{
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsv2rgb(vec3 c)
+{
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+
+void fragment()
+{
+    vec2 iResolution = 1.0/SCREEN_PIXEL_SIZE;
+	
+	// coordinate system
+    vec2  uv = (-iResolution.xy + 1.8*FRAGCOORD.xy) / iResolution.y;
+    //float px =10.0/iResolution.y;
+	//Half black 
+	float px = uv.x/iResolution.x;
+		//float px2 = uv.y/iResolution.y;
+    // frame in screen
+    uv = uv*zoff+ vec2(0.0,yoff);
+    px = px*foc;
+
+
+    // compute
+    float d = map(uv);
+
+
+
+    // shape
+    vec3 cola = vec3( smoothstep( 0.0, 2.0*px, d ) );
+
+    // distance field
+    vec3 colb = vec3( pow(abs(d),0.4)*0.5 + 0.015*sin( 40.0*d ) );
+
+   	// derivatives
+     	// derivatives
+    //#if 1
+    //    vec2 der = vec2( dFdx(d), dFdy(d) )/px;
+   // #else
+        float eps = 0.1/iResolution.y;
+        vec2 der = vec2( map(uv+vec2(eps,0.0))-d,map(uv+vec2(0.0,eps))-d) /eps;
+	// vec2 der = vec2( dFdx(d), dFdy(d) )/px;
+   // #endif
+    vec3 colc = vec3(0.5+0.5*der.x,0.5+0.5*der.y,0.0) * clamp(abs(d)*8.0+0.2,0.0,1.0);
+   
+   // vec3 colc = vec3(0.5+0.5*der.x,0.5+0.5*der.y,0.0) * clamp(abs(d)*8.0+0.2,0.0,1.0);
+
+
+    // final color
+    float t = fract( 0.2 + iTime/11.0);
+
+
+    vec3 col = mix( colc, cola, smoothstep( 0.00, 0.05, t ) );
+         col = mix( col , colb, smoothstep( 0.30, 0.35, t) );
+         col = mix( col , colc, smoothstep( 0.60, 0.65, t ) );
+
+
+	vec3 col1 = rgb2hsv(col);
+
+	col1.x =- 0.5;//change hue
+	
+	//col1.g =+ 0.5;
+
+	vec3 col3 =  hsv2rgb(col1);
+	col3.r =col.r;
+	
+
+
+    COLOR = vec4( col3, 1.0);
+	
+	//COLOR = textureLod(SCREEN_TEXTURE, SCREEN_UV, 3);
+}
+"
+
+[sub_resource type="ShaderMaterial" id=2]
+shader = SubResource( 1 )
+shader_param/TRUE_DISTANCE = 0
+shader_param/kDepth = 7
+shader_param/kBranches = 3
+shader_param/kMaxDepth = 2187
+shader_param/iTime = 0.7
+shader_param/len = 3.2
+shader_param/wid = 0.3
+shader_param/lenf = 0.6
+shader_param/widf = 0.4
+shader_param/zoff = 12.0
+shader_param/yoff = 3.5
+shader_param/foc = 3.5
+
+[sub_resource type="ProxyTexture" id=3]
+
+[sub_resource type="ViewportTexture" id=4]
+viewport_path = NodePath("tree/Viewport")
+
+[node name="Control" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="tree" type="Node2D" parent="."]
+
+[node name="Viewport" type="Viewport" parent="tree"]
+size = Vector2( 800, 600 )
+hdr = false
+usage = 1
+render_target_clear_mode = 2
+render_target_update_mode = 3
+
+[node name="Sprite" type="Sprite" parent="tree/Viewport"]
+material = SubResource( 2 )
+position = Vector2( 513, 298.5 )
+scale = Vector2( 1027, 598 )
+texture = SubResource( 3 )
+script = ExtResource( 1 )
+
+[node name="Timer" type="Timer" parent="tree/Viewport/Sprite"]
+wait_time = 5.0
+one_shot = true
+autostart = true
+
+[node name="TextureRect" type="TextureRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+texture = SubResource( 4 )
+expand = true
+stretch_mode = 1
+flip_v = true
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Panel" type="Panel" parent="TextureRect"]
+modulate = Color( 1, 1, 1, 0.741176 )
+margin_left = 5.0
+margin_top = 85.0
+margin_right = 282.0
+margin_bottom = 396.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Button" type="Button" parent="TextureRect/Panel"]
+margin_left = 11.0
+margin_top = 267.0
+margin_right = 105.0
+margin_bottom = 296.0
+text = "Color"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 44.0
+margin_right = 211.0
+margin_bottom = 60.0
+min_value = 1.0
+max_value = 4.0
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider"]
+margin_left = 211.55
+margin_top = 2.85001
+margin_right = 254.55
+margin_bottom = 16.85
+text = "branch"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider2" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 163.0
+margin_right = 206.0
+margin_bottom = 179.0
+min_value = 1.0
+max_value = 8.0
+value = 4.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider2"]
+margin_left = 206.687
+margin_top = 0.392151
+margin_right = 249.687
+margin_bottom = 31.3922
+text = "depth
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider3" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 67.0
+margin_right = 210.0
+margin_bottom = 83.0
+min_value = 1.0
+max_value = 10.0
+step = 0.1
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider3"]
+margin_left = 211.716
+margin_top = -0.706039
+margin_right = 254.716
+margin_bottom = 30.294
+text = "Length
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider4" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 115.0
+margin_right = 204.0
+margin_bottom = 131.0
+max_value = 1.0
+step = 0.1
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider4"]
+margin_left = 212.108
+margin_top = 1.86505
+margin_right = 255.108
+margin_bottom = 32.8651
+text = "Width
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider5" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 93.0
+margin_right = 213.0
+margin_bottom = 109.0
+max_value = 3.0
+step = 0.1
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider5"]
+margin_left = 212.5
+margin_top = 0.749359
+margin_right = 263.5
+margin_bottom = 31.7494
+text = "Length2
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider6" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 11.0
+margin_top = 139.0
+margin_right = 215.0
+margin_bottom = 155.0
+max_value = 1.0
+step = 0.1
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider6"]
+margin_left = 216.3
+margin_top = -5.70001
+margin_right = 262.3
+margin_bottom = 25.3
+text = "Width2
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider7" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 187.0
+margin_right = 212.0
+margin_bottom = 203.0
+min_value = 1.0
+max_value = 60.0
+step = 0.5
+value = 1.0
+ticks_on_borders = true
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider7"]
+margin_left = 215.443
+margin_top = 2.87372
+margin_right = 261.443
+margin_bottom = 33.8737
+text = "Zoom
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider8" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 8.0
+margin_top = 216.747
+margin_right = 212.0
+margin_bottom = 232.747
+min_value = 1.0
+max_value = 10.0
+step = 0.5
+value = 3.5
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider8"]
+margin_left = 211.156
+margin_top = 2.87372
+margin_right = 269.156
+margin_bottom = 33.8737
+text = "Movepos
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="HSlider9" type="HSlider" parent="TextureRect/Panel"]
+margin_left = 11.0
+margin_top = 243.0
+margin_right = 215.0
+margin_bottom = 259.0
+min_value = 1.0
+max_value = 400.0
+step = 1.0
+value = 3.5
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="Label" type="Label" parent="TextureRect/Panel/HSlider9"]
+margin_left = 211.156
+margin_top = 2.87372
+margin_right = 269.156
+margin_bottom = 33.8737
+text = "Focus
+"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="menuPanel" parent="." instance=ExtResource( 2 )]
+[connection signal="timeout" from="tree/Viewport/Sprite/Timer" to="tree/Viewport/Sprite" method="_on_Timer_timeout"]
+[connection signal="pressed" from="TextureRect/Panel/Button" to="tree/Viewport/Sprite" method="_on_Button_pressed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider" to="tree/Viewport/Sprite" method="_on_HSlider_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider2" to="tree/Viewport/Sprite" method="_on_HSlider2_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider3" to="tree/Viewport/Sprite" method="_on_HSlider3_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider4" to="tree/Viewport/Sprite" method="_on_HSlider4_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider5" to="tree/Viewport/Sprite" method="_on_HSlider5_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider6" to="tree/Viewport/Sprite" method="_on_HSlider6_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider7" to="tree/Viewport/Sprite" method="_on_HSlider7_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider8" to="tree/Viewport/Sprite" method="_on_HSlider8_value_changed"]
+[connection signal="value_changed" from="TextureRect/Panel/HSlider9" to="tree/Viewport/Sprite" method="_on_HSlider9_value_changed"]

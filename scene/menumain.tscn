@@ -1,0 +1,111 @@
+[gd_scene load_steps=6 format=2]
+
+[ext_resource path="res://script/menu/studiomenu.gd" type="Script" id=1]
+[ext_resource path="res://script/menu/labmenu.gd" type="Script" id=2]
+[ext_resource path="res://script/menu/filemenu.gd" type="Script" id=3]
+[ext_resource path="res://script/menu/coursemenu.gd" type="Script" id=4]
+[ext_resource path="res://script/menu/helpmenu.gd" type="Script" id=5]
+
+[node name="menuPanel" type="Panel"]
+anchor_right = 1.0
+margin_bottom = 32.0
+grow_vertical = 0
+rect_min_size = Vector2( 1920, 0 )
+rect_scale = Vector2( 1.3, 1.3 )
+size_flags_horizontal = 3
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="File" type="MenuButton" parent="."]
+margin_left = 32.0
+margin_top = 8.0
+margin_right = 67.0
+margin_bottom = 28.0
+text = "File"
+align = 0
+switch_on_hover = true
+script = ExtResource( 3 )
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="ConfirmationDialogQuit" type="ConfirmationDialog" parent="File"]
+margin_left = 45.7247
+margin_top = 97.3441
+margin_right = 245.725
+margin_bottom = 167.344
+window_title = "Really Quit?"
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="FileOpenDialog" type="FileDialog" parent="File"]
+margin_left = 10.0
+margin_top = 93.0
+margin_right = 455.0
+margin_bottom = 445.0
+window_title = "Open a File"
+mode = 0
+access = 2
+current_dir = "/home/tt/Desktop/working/openCFA5"
+current_path = "/home/tt/Desktop/working/openCFA5/"
+
+[node name="FilSaveDialog" type="FileDialog" parent="File"]
+margin_left = 10.0
+margin_top = 93.0
+margin_right = 455.0
+margin_bottom = 445.0
+access = 2
+current_dir = "/home/tt/Desktop/working/openCFA5"
+current_path = "/home/tt/Desktop/working/openCFA5/"
+
+[node name="studios" type="MenuButton" parent="."]
+margin_left = 67.0
+margin_top = 8.0
+margin_right = 123.0
+margin_bottom = 28.0
+text = "Studio"
+align = 0
+switch_on_hover = true
+script = ExtResource( 1 )
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="labs" type="MenuButton" parent="."]
+margin_left = 120.0
+margin_top = 8.0
+margin_right = 176.0
+margin_bottom = 28.0
+text = "Lab"
+align = 0
+switch_on_hover = true
+script = ExtResource( 2 )
+
+[node name="course" type="MenuButton" parent="."]
+margin_left = 152.0
+margin_top = 8.0
+margin_right = 208.0
+margin_bottom = 28.0
+text = "Course"
+align = 0
+script = ExtResource( 4 )
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="help" type="MenuButton" parent="."]
+margin_left = 208.0
+margin_top = 8.0
+margin_right = 258.0
+margin_bottom = 28.0
+text = "Help"
+align = 0
+script = ExtResource( 5 )
+__meta__ = {
+"_edit_use_anchors_": false
+}
+[connection signal="confirmed" from="File/ConfirmationDialogQuit" to="File" method="_on_ConfirmationDialogQuit_confirmed"]
+[connection signal="file_selected" from="File/FileOpenDialog" to="File" method="_on_FileOpenDialog_file_selected"]
+[connection signal="file_selected" from="File/FilSaveDialog" to="File" method="_on_FilSaveDialog_file_selected"]
